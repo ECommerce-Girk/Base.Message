@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Base.Database;
+using Base.Infra;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,11 +9,11 @@ using RabbitMQ.Client.Events;
 
 namespace Base.Message.Consumer;
 
-public sealed class MessageConsumer<TDbContext>(
+public sealed class MessageConsumer(
     IServiceProvider serviceProvider,
     IOptions<BrokerSettings> brokerOptions,
-    IMessageRegistry messageRegistry,
-    ILogger<MessageConsumer<TDbContext>> logger) : BackgroundService where TDbContext : DbContextBase 
+    IInboxMessageRegistry inboxMessageRegistry,
+    ILogger<MessageConsumer> logger) : BackgroundService
 {
     private readonly BrokerSettings _settings = brokerOptions.Value;
     private readonly string _queueName = brokerOptions.Value.ServiceName + ".main-queue";
@@ -26,7 +26,7 @@ public sealed class MessageConsumer<TDbContext>(
             try
             {
                 await using var connection = await Broker.Connect(_settings, _settings.ServiceName + "-message-consumer", ct);
-                await using var channel = await Broker.OpenConsumer(connection, _settings, _queueName, _deadLetterQueueName, messageRegistry.In.Keys.ToArray(), ct);
+                await using var channel = await Broker.OpenConsumer(connection, _settings, _queueName, _deadLetterQueueName, inboxMessageRegistry.In.Keys.ToArray(), ct);
         
                 var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 connection.ConnectionShutdownAsync += (_, _) => { ended.TrySetResult(); return Task.CompletedTask; };
@@ -89,7 +89,7 @@ public sealed class MessageConsumer<TDbContext>(
             return;
         }
 
-        if (!messageRegistry.In.TryGetValue(eventTypeString, out var messageType))
+        if (!inboxMessageRegistry.In.TryGetValue(eventTypeString, out var messageType))
         {
             await Broker.Quarantine(_settings.Exchange, _deadLetterQueueName, channel, delivery, $"Unknown event type: {eventTypeString}.", logger, ct);
             return;
@@ -102,25 +102,23 @@ public sealed class MessageConsumer<TDbContext>(
             await Broker.Quarantine(_settings.Exchange, _deadLetterQueueName, channel, delivery, $"Failed to deserialize message of type: {eventTypeString}.", logger, ct);
             return;
         }
-        
-        var handlerType = typeof(IMessageHandler<>).MakeGenericType(messageType);
-        if(handlerType is null)
-        {
-            await Broker.Quarantine(_settings.Exchange, _deadLetterQueueName, channel, delivery, $"No handler found for message type: {eventTypeString}.", logger, ct);
-            return;
-        }
 
+        var inboxMessage = InboxMessage.From(message, messageId, eventTypeString);
+        
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             try
             {
                 await using var scope = serviceProvider.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<TDbContext>();
+                var handler = inboxMessageRegistry.TryGetHandler(message, scope.ServiceProvider);
+                if(handler is null)
+                {
+                    await Broker.Quarantine(_settings.Exchange, _deadLetterQueueName, channel, delivery, $"No handler registered for: {eventTypeString}.", logger, ct);
+                    return;
+                }
 
-                var handler = scope.ServiceProvider.GetRequiredService(handlerType);
-
-                await MessageHandler.Handle(db, messageId, message, handler, ct);
-
+                var processor = scope.ServiceProvider.GetRequiredService<IMessageProcessor>();
+                await processor.Process(scope, message, handler, inboxMessage, ct);
                 await channel.BasicAckAsync(delivery.DeliveryTag, false, ct);
                 return;
             }

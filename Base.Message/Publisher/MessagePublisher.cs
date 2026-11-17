@@ -1,6 +1,5 @@
 using System.Text;
-using Base.Database;
-using Microsoft.EntityFrameworkCore;
+using Base.Infra;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,10 +8,10 @@ using RabbitMQ.Client;
 
 namespace Base.Message.Publisher;
 
-public sealed class MessagePublisher<TDbContext>(
-    IServiceScopeFactory scopeFactory,
+public sealed class MessagePublisher(
+    IServiceProvider serviceProvider,
     IOptions<BrokerSettings> brokerOptions,
-    ILogger<MessagePublisher<TDbContext>> logger) : BackgroundService where TDbContext : DbContextBase
+    ILogger<MessagePublisher> logger) : BackgroundService
 {
     private readonly BrokerSettings _settings = brokerOptions.Value;
 
@@ -24,16 +23,13 @@ public sealed class MessagePublisher<TDbContext>(
         {
             try
             {
-                using var scope = scopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<TDbContext>();
+                await using var scope = serviceProvider.CreateAsyncScope();
+                var outboxMessagesRepository = scope.ServiceProvider.GetRequiredService<IOutboxMessageRepository>();
+                var uow = scope.ServiceProvider.GetRequiredService<IUoW>();
 
-                var unsentEvents = await dbContext.OutboxMessages
-                    .Where(e => e.PublishedAt == null)
-                    .OrderBy(e => e.CreatedAt)
-                    .Take(20)
-                    .ToArrayAsync(ct);
+                var unsentMessages = await outboxMessagesRepository.GetPendingMessages(20, ct: ct);
 
-                if (unsentEvents.Length == 0)
+                if (unsentMessages.Length == 0)
                 {
                     await Task.Delay(5000, ct);
                     continue;
@@ -42,9 +38,11 @@ public sealed class MessagePublisher<TDbContext>(
                 await using var connection = await Broker.Connect(_settings, _settings.ServiceName + "-outbox-publisher", ct);
                 await using var channel = await Broker.OpenPublisher(connection, _settings, ct);
 
-                foreach (var e in unsentEvents)
+                foreach (var msg in unsentMessages)
                 {
-                    await PublishNextAsync(channel, e, dbContext, ct);
+                    await PublishMessage(channel, msg, ct);
+                    msg.PublishedAt = DateTimeOffset.UtcNow;
+                    await uow.SaveChanges(ct);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -55,11 +53,7 @@ public sealed class MessagePublisher<TDbContext>(
         }
     }
 
-    private async Task PublishNextAsync(
-        IChannel channel,
-        OutboxMessage msg,
-        DbContext dbContext,
-        CancellationToken ct)
+    private async Task PublishMessage(IChannel channel, OutboxMessage msg, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -80,9 +74,6 @@ public sealed class MessagePublisher<TDbContext>(
             basicProperties: properties,
             body: Encoding.UTF8.GetBytes(msg.Body),
             cancellationToken: timeout.Token);
-
-        msg.PublishedAt = DateTimeOffset.UtcNow;
-        await dbContext.SaveChangesAsync(ct);
     }
 
 }

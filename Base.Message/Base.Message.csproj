@@ -7,9 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Base.Infra" Version="2611.17.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
     <PackageReference Include="RabbitMQ.Client" Version="7.2.2" />
-    <PackageReference Include="Base.Database" Version="2611.14.14" />
   </ItemGroup>
 
 </Project>
