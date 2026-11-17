@@ -4,21 +4,21 @@ using RabbitMQ.Client.Events;
 
 namespace Base.Message;
 
-public static class Broker
+internal static class Broker
 {
-    public static Task<IConnection> Connect(BrokerSettings settings, string clientProvidedName, CancellationToken ct) =>
+    internal static Task<IConnection> Connect(BrokerSettings settings, string clientProvidedName, CancellationToken ct) =>
         new ConnectionFactory
         {
             HostName = settings.Host,
             UserName = settings.User,
             Password = settings.Password,
-            ClientProvidedName = clientProvidedName,
+            ClientProvidedName = $"{settings.ServiceName}-{clientProvidedName}",
             AutomaticRecoveryEnabled = false, // Lo manejamos de forma controlada con el BackgroundService
             RequestedConnectionTimeout = TimeSpan.FromSeconds(5),
             RequestedHeartbeat = TimeSpan.FromSeconds(10)
         }.CreateConnectionAsync(ct);
 
-    public static async Task<IChannel> OpenConsumer(
+    internal static async Task<IChannel> OpenConsumer(
         IConnection connection,
         BrokerSettings settings,
         string queueName,
@@ -52,7 +52,7 @@ public static class Broker
         return channel;
     }
 
-    public static async Task<IChannel> OpenPublisher(
+    internal static async Task<IChannel> OpenPublisher(
         IConnection connection,
         BrokerSettings settings,
         CancellationToken ct)
@@ -71,7 +71,7 @@ public static class Broker
         return channel;
     }
 
-    public static async Task Quarantine(
+    internal static async Task Quarantine(
         string exchange,
         string deadLetterQueueName,
         IChannel channel,

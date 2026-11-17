@@ -27,18 +27,18 @@ public sealed class MessagePublisher(
                 var outboxMessagesRepository = scope.ServiceProvider.GetRequiredService<IOutboxMessageRepository>();
                 var uow = scope.ServiceProvider.GetRequiredService<IUoW>();
 
-                var unsentMessages = await outboxMessagesRepository.GetPendingMessages(20, ct: ct);
+                var pendingMessages = await outboxMessagesRepository.ClaimPendingMessages(20, ct);
 
-                if (unsentMessages.Length == 0)
+                if (pendingMessages.Length == 0)
                 {
                     await Task.Delay(5000, ct);
                     continue;
                 }
 
-                await using var connection = await Broker.Connect(_settings, _settings.ServiceName + "-outbox-publisher", ct);
+                await using var connection = await Broker.Connect(_settings, "outbox-publisher", ct);
                 await using var channel = await Broker.OpenPublisher(connection, _settings, ct);
 
-                foreach (var msg in unsentMessages)
+                foreach (var msg in pendingMessages)
                 {
                     await PublishMessage(channel, msg, ct);
                     msg.PublishedAt = DateTimeOffset.UtcNow;
