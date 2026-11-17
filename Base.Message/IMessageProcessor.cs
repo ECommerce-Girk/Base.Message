@@ -1,7 +1,7 @@
 using Base.Infra;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Base.Message.Consumer;
+namespace Base.Message;
 
 public interface IMessageProcessor
 {
@@ -12,6 +12,5 @@ public interface IMessageProcessor
         InboxMessage inboxMessage,
         CancellationToken ct);
 }
-
 
 public class InvalidMessageException(string message) : Exception(message);

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-namespace Base.Message.Consumer;
+namespace Base.Message;
 
 public sealed class MessageConsumer(
     IServiceProvider serviceProvider,

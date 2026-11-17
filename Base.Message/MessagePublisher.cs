@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 
-namespace Base.Message.Publisher;
+namespace Base.Message;
 
 public sealed class MessagePublisher(
     IServiceProvider serviceProvider,
