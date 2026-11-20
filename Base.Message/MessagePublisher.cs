@@ -41,8 +41,10 @@ public sealed class MessagePublisher(
 
                 foreach (var msg in pendingMessages)
                 {
-                    await PublishMessage(channel, GetMessageType(msg.ClrType), msg.Id, msg.Body, ct);
+                    var messageType = GetMessageType(msg.ClrType);
+                    await PublishMessage(channel, messageType, msg.Id, msg.Body, ct);
                     msg.PublishedAt = DateTimeOffset.UtcNow;
+                    msg.MessageType = messageType;
                 }
 
                 await uow.SaveChanges(ct);
