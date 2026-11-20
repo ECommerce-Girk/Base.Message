@@ -57,14 +57,8 @@ public sealed class MessagePublisher(
 
     private string GetMessageType(string clrType)
     {
-        var type = Type.GetType(clrType)
-            ?? throw new InvalidOperationException(
-                $"CLR type not found: {clrType}");
-
-        return outboxMessageRegistry.Out.TryGetValue(type, out var messageType)
-            ? messageType
-            : throw new InvalidOperationException(
-                $"No message type registered for CLR type: {clrType}");
+         return outboxMessageRegistry.Out.FirstOrDefault(x => x.Value.FullName == clrType).Key ?? throw new InvalidOperationException(
+            $"No message type registered for CLR type: {clrType}");
     }
 
     private async Task PublishMessage(IChannel channel, string messageType, Guid messageId, string messageBody, CancellationToken ct)
