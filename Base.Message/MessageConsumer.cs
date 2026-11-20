@@ -25,7 +25,7 @@ public sealed class MessageConsumer(
         {
             try
             {
-                await using var connection = await Broker.Connect(_settings, _settings.ServiceName + "-message-consumer", ct);
+                await using var connection = await Broker.Connect(_settings, "message-consumer", ct);
                 await using var channel = await Broker.OpenConsumer(connection, _settings, _queueName, _deadLetterQueueName, inboxMessageRegistry.In.Keys.ToArray(), ct);
         
                 var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -110,15 +110,8 @@ public sealed class MessageConsumer(
             try
             {
                 await using var scope = serviceProvider.CreateAsyncScope();
-                var handler = inboxMessageRegistry.TryGetHandler(message, scope.ServiceProvider);
-                if(handler is null)
-                {
-                    await Broker.Quarantine(_settings.Exchange, _deadLetterQueueName, channel, delivery, $"No handler registered for: {eventTypeString}.", logger, ct);
-                    return;
-                }
-
-                var processor = scope.ServiceProvider.GetRequiredService<IMessageProcessor>();
-                await processor.Process(scope, message, handler, inboxMessage, ct);
+                var handler = scope.ServiceProvider.GetRequiredService<IMessageHandler>();
+                await handler.Handle(scope.ServiceProvider, message, inboxMessage, ct);
                 await channel.BasicAckAsync(delivery.DeliveryTag, false, ct);
                 return;
             }

@@ -13,7 +13,7 @@ internal static class Broker
             UserName = settings.User,
             Password = settings.Password,
             ClientProvidedName = $"{settings.ServiceName}-{clientProvidedName}",
-            AutomaticRecoveryEnabled = false, // Lo manejamos de forma controlada con el BackgroundService
+            AutomaticRecoveryEnabled = false,
             RequestedConnectionTimeout = TimeSpan.FromSeconds(5),
             RequestedHeartbeat = TimeSpan.FromSeconds(10)
         }.CreateConnectionAsync(ct);
@@ -37,11 +37,14 @@ internal static class Broker
         };
 
         await channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, args, cancellationToken: ct);
-        await channel.QueueDeclareAsync(deadLetterQueueName, durable: true, exclusive: false, autoDelete: false, args, cancellationToken: ct);
         foreach (var routingKey in routingKeys)
         {
             await channel.QueueBindAsync(queueName, settings.Exchange, routingKey, cancellationToken: ct);
         }
+
+        await channel.QueueDeclareAsync(deadLetterQueueName, durable: true, exclusive: false, autoDelete: false, args, cancellationToken: ct);
+        await channel.QueueBindAsync(deadLetterQueueName, settings.Exchange, deadLetterQueueName, cancellationToken: ct);
+
 
         await channel.BasicQosAsync(
             prefetchSize: 0,  // No message limit
