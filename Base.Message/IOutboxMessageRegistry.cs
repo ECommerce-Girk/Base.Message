@@ -2,5 +2,5 @@ namespace Base.Message;
 
 public interface IOutboxMessageRegistry
 {
-    IReadOnlyDictionary<string, Type> Out { get; }
+    IReadOnlyDictionary<Type, string> Out { get; }
 }
