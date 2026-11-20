@@ -26,13 +26,12 @@ public static class MessageServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddMessageBroker<TInboxRegistry, THandler, TOutboxRegistry>(this IServiceCollection services, IConfiguration configuration)
-        where TInboxRegistry : class, IInboxMessageRegistry
+    public static IServiceCollection AddMessageBroker<TMessageRegistry, THandler>(this IServiceCollection services, IConfiguration configuration)
+        where TMessageRegistry : class, IInboxMessageRegistry, IOutboxMessageRegistry
         where THandler : class, IMessageHandler
-        where TOutboxRegistry : class, IOutboxMessageRegistry
     {
-        services.AddMessageConsumer<TInboxRegistry, THandler>(configuration);
-        services.AddMessagePublisher<TOutboxRegistry>(configuration);
+        services.AddMessageConsumer<TMessageRegistry, THandler>(configuration);
+        services.AddMessagePublisher<TMessageRegistry>(configuration);
         return services;
     }
 }
