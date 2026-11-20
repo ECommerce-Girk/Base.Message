@@ -11,6 +11,7 @@ namespace Base.Message;
 public sealed class MessagePublisher(
     IServiceProvider serviceProvider,
     IOptions<BrokerSettings> brokerOptions,
+    IOutboxMessageRegistry outboxMessageRegistry,
     ILogger<MessagePublisher> logger) : BackgroundService
 {
     private readonly BrokerSettings _settings = brokerOptions.Value;
@@ -40,10 +41,11 @@ public sealed class MessagePublisher(
 
                 foreach (var msg in pendingMessages)
                 {
-                    await PublishMessage(channel, msg, ct);
+                    await PublishMessage(channel, GetMessageType(msg.ClrType), msg.Id, msg.Body, ct);
                     msg.PublishedAt = DateTimeOffset.UtcNow;
-                    await uow.SaveChanges(ct);
                 }
+
+                await uow.SaveChanges(ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -53,7 +55,14 @@ public sealed class MessagePublisher(
         }
     }
 
-    private async Task PublishMessage(IChannel channel, OutboxMessage msg, CancellationToken ct)
+    private string GetMessageType(string clrType)
+    {
+        var entry = outboxMessageRegistry.Out.FirstOrDefault(x => x.Value.FullName == clrType);
+
+        return entry.Key ?? throw new InvalidOperationException($"No message type registered for CLR type: {clrType}");
+    }
+
+    private async Task PublishMessage(IChannel channel, string messageType, Guid messageId, string messageBody, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -62,17 +71,17 @@ public sealed class MessagePublisher(
         {
             Persistent = true,
             ContentType = "application/json",
-            Type = msg.Type,
-            MessageId = msg.Id.ToString(),
-            CorrelationId = msg.Id.ToString()
+            Type = messageType,
+            MessageId = messageId.ToString(),
+            CorrelationId = messageId.ToString()
         };
 
         await channel.BasicPublishAsync(
             exchange: _settings.Exchange,
-            routingKey: msg.Type,
+            routingKey: messageType,
             mandatory: true,
             basicProperties: properties,
-            body: Encoding.UTF8.GetBytes(msg.Body),
+            body: Encoding.UTF8.GetBytes(messageBody),
             cancellationToken: timeout.Token);
     }
 
